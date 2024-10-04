@@ -24,6 +24,24 @@ impl Git {
 
         String::from_utf8_lossy(&r.stdout).to_string()
     }
+    
+    pub(crate) fn get_first_commit(&self) -> String {
+        let r = Command::new("git")
+            .arg("rev-list")
+            .arg("--max-parents=0")
+            .arg("HEAD")
+            .output()
+            .expect("Failed to execute git log");
+
+        let output = String::from_utf8_lossy(&r.stdout);
+
+        if let Some(first_commit) = output.lines().next() {
+           return first_commit.to_string();
+        } else {
+            panic!("No commit found")
+        }
+
+    }
 
     pub(crate) fn bisect_start(&self) {
         Command::new("git")
@@ -34,7 +52,7 @@ impl Git {
             .expect("Could not start git bisect");
     }
 
-    pub fn current_hash(&self) {
+    pub(crate) fn current_hash(&self) {
         Command::new("git")
             .arg("rev-parse")
             .arg("--verify")
@@ -51,7 +69,6 @@ impl Git {
             .expect("Weird");
 
         let res = String::from_utf8_lossy(&res.stdout).to_string();
-
         if res.contains("is the first bad commit") {
             return true;
         }
@@ -97,13 +114,15 @@ impl Git {
         self.bisect_reset();
         self.bisect_start();
         self.bisect_bad();
-
-        self.checkout(&self.commits.last().unwrap().hash);
+    
+        let first_commit = &self.get_first_commit();
+        self.checkout(first_commit);        
 
         let mut iterations = 0;
 
         loop {
-            if iterations >= 30 {
+            // println!("Current : {:?}", self.current_hash());
+            if iterations >= 1000 {
                 return Err("Bug not found after max iterations reached.");
             } else {
                 iterations = iterations + 1
