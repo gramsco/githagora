@@ -34,6 +34,15 @@ impl Git {
             .expect("Could not start git bisect");
     }
 
+    pub fn current_hash(&self) {
+        Command::new("git")
+            .arg("rev-parse")
+            .arg("--verify")
+            .arg("HEAD")
+            .status()
+            .expect("Could not get current hash");
+    }
+
     pub(crate) fn bisect_good(&self) -> bool {
         let res = Command::new("git")
             .arg("bisect")
@@ -44,7 +53,6 @@ impl Git {
         let res = String::from_utf8_lossy(&res.stdout).to_string();
 
         if res.contains("is the first bad commit") {
-            println!("{res}");
             return true;
         }
         return false;
@@ -60,7 +68,6 @@ impl Git {
         let res = String::from_utf8_lossy(&res.stdout).to_string();
 
         if res.contains("is the first bad commit") {
-            println!("{res}");
             return true;
         }
         return false;
@@ -84,7 +91,7 @@ impl Git {
             .unwrap();
     }
 
-    pub(crate) fn bisect(&self, test_cmd: &String, args:&[String]) -> Result<&str, &str> {
+    pub(crate) fn bisect(&self, test_cmd: &String, args: &[String]) -> Result<&str, &str> {
         println!("Bisecting all commits");
 
         self.bisect_reset();
@@ -111,12 +118,16 @@ impl Git {
             if status.success() {
                 let guilty = self.bisect_good();
                 if guilty {
+                    println!("Guilty found:");
+                    self.current_hash();
                     println!("Found the bug in {iterations} steps.");
                     break;
                 }
             } else {
                 let guilty = self.bisect_bad();
                 if guilty {
+                    println!("Guilty found:");
+                    self.current_hash();
                     println!("Found the bug in {iterations} steps.");
                     break;
                 }
