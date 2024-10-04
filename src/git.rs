@@ -1,5 +1,7 @@
+use std::fmt::Write;
 use std::process::Stdio;
 
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use std::process::Command;
 
 #[derive(Debug)]
@@ -24,7 +26,7 @@ impl Git {
 
         String::from_utf8_lossy(&r.stdout).to_string()
     }
-    
+
     pub(crate) fn get_first_commit(&self) -> String {
         let r = Command::new("git")
             .arg("rev-list")
@@ -36,11 +38,26 @@ impl Git {
         let output = String::from_utf8_lossy(&r.stdout);
 
         if let Some(first_commit) = output.lines().next() {
-           return first_commit.to_string();
+            return first_commit.to_string();
         } else {
             panic!("No commit found")
         }
+    }
 
+    pub(crate) fn get_commits_count(&self) -> i32 {
+        let r = Command::new("git")
+            .arg("rev-list")
+            .arg("--count")
+            .arg("--all")
+            .output()
+            .expect("Failed to execute git log");
+
+        let output = String::from_utf8_lossy(&r.stdout)
+            .to_string()
+            .trim()
+            .to_string();
+
+        return output.parse().unwrap();
     }
 
     pub(crate) fn bisect_start(&self) {
@@ -114,18 +131,28 @@ impl Git {
         self.bisect_reset();
         self.bisect_start();
         self.bisect_bad();
-    
+
         let first_commit = &self.get_first_commit();
-        self.checkout(first_commit);        
+        self.checkout(first_commit);
 
         let mut iterations = 0;
+        let max_iterations = (self.get_commits_count() as f32).log2().ceil() as i32;
 
-        loop {
-            // println!("Current : {:?}", self.current_hash());
-            if iterations >= 1000 {
-                return Err("Bug not found after max iterations reached.");
+        println!("Max iterations: {max_iterations}");
+        let pb = ProgressBar::new(max_iterations as u64);
+
+        pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+        .unwrap()
+        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
+        .progress_chars("#>-"));
+
+        return loop {
+            if iterations >= max_iterations {
+                self.bisect_reset();
+                break Err("Something went wrong: Bug not found after max iterations reached.");
             } else {
-                iterations = iterations + 1
+                iterations = iterations + 1;
+                pb.set_position(iterations as u64);
             }
 
             let status = Command::new(&test_cmd)
@@ -137,25 +164,26 @@ impl Git {
             if status.success() {
                 let guilty = self.bisect_good();
                 if guilty {
-                    println!("Guilty found:");
+                    pb.finish_with_message("Found!");
+                    println!("");
                     self.current_hash();
                     println!("Found the bug in {iterations} steps.");
-                    break;
+                    
+                    break Ok("Bisect over.");
                 }
             } else {
                 let guilty = self.bisect_bad();
                 if guilty {
-                    println!("Guilty found:");
+                    pb.finish_with_message("Found!");
+                    println!("");
                     self.current_hash();
                     println!("Found the bug in {iterations} steps.");
-                    break;
+                    self.bisect_reset();
+
+                    break Ok("Bisect over.");
                 }
             }
-        }
-
-        self.bisect_reset();
-
-        return Ok("Bug found");
+        };
     }
 
     pub(crate) fn new() -> Git {
